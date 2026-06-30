@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全国 庁舎系複合施設マップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --header-h: 56px;
+  --card-strip-h: 200px;
+  --filter-w: 280px;
+  --bg: #f4f6fb;
+  --white: #fff;
+  --ink: #1a2238;
+  --mid: #5a6480;
+  --muted: #8890b0;
+  --line: #dde2ef;
+  --blue: #2874c2;
+  --green: #2e8b57;
+  --orange: #e07c24;
+  --pink: #d44fa0;
+  --teal: #1a9090;
+  --navy: #1a3c6e;
+  --gray: #888;
+}
+html, body { height: 100%; font-family: 'Noto Sans JP', 'Hiragino Kaku Gothic ProN', sans-serif; font-size: 14px; color: var(--ink); background: var(--bg); overflow: hidden; }
+
+/* ── HEADER ── */
+header {
+  position: fixed; top: 0; left: 0; right: 0; height: var(--header-h); z-index: 3000;
+  background: linear-gradient(135deg, #1a2e5a 0%, #2874c2 100%);
+  display: flex; align-items: center; gap: 12px; padding: 0 18px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.h-title { color: #fff; font-size: 16px; font-weight: 700; letter-spacing: .03em; }
+.h-badge {
+  background: rgba(255,255,255,.18); color: #d8e8ff;
+  border: 1px solid rgba(255,255,255,.3); border-radius: 20px;
+  font-size: 12px; padding: 3px 10px; white-space: nowrap;
+}
+.h-badge strong { color: #fff; }
+.h-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+#filterToggleBtn {
+  background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+  color: #fff; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+#filterToggleBtn:hover { background: rgba(255,255,255,.25); }
+
+/* ── LAYOUT ── */
+.page-body {
+  position: fixed;
+  top: var(--header-h); left: 0; right: 0;
+  bottom: var(--card-strip-h);
+  display: flex; overflow: hidden;
+}
+
+/* ── FILTER PANEL ── */
+.filter-panel {
+  width: var(--filter-w); min-width: var(--filter-w);
+  background: var(--white); border-right: 1px solid var(--line);
+  overflow-y: auto; padding: 14px 14px 20px; flex-shrink: 0;
+  transition: margin-left .25s ease;
+}
+.filter-panel.collapsed { margin-left: calc(-1 * var(--filter-w)); }
+
+.fp-section { margin-bottom: 16px; }
+.fp-label { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+
+.fp-search {
+  display: flex; align-items: center;
+  border: 1.5px solid var(--line); border-radius: 7px; background: var(--bg);
+  padding: 0 8px; gap: 5px;
+}
+.fp-search input { border: none; background: transparent; outline: none; width: 100%; padding: 7px 0; font-size: 13px; font-family: inherit; color: var(--ink); }
+.fp-search .si { color: var(--muted); font-size: 14px; }
+
+.fp-select {
+  width: 100%; padding: 7px 26px 7px 9px; border: 1.5px solid var(--line);
+  border-radius: 7px; background: var(--bg) url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="6"%3E%3Cpath d="M0 0l5 6 5-6z" fill="%238890b0"/%3E%3C/svg%3E') no-repeat right 8px center;
+  appearance: none; font-size: 13px; color: var(--ink); cursor: pointer; font-family: inherit; outline: none;
+}
+
+.fp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fp-chip {
+  display: flex; align-items: center; gap: 4px; padding: 4px 9px;
+  border: 1.5px solid var(--line); border-radius: 20px; cursor: pointer;
+  font-size: 11px; font-weight: 600; background: var(--white); color: var(--mid);
+  transition: all .15s;
+}
+.fp-chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.fp-chip.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.fp-chip.active .dot { outline: 2px solid rgba(255,255,255,.5); }
+
+.fp-reset { width: 100%; padding: 7px; border: 1.5px solid var(--line); border-radius: 7px; background: none; cursor: pointer; font-size: 12px; font-family: inherit; color: var(--mid); margin-top: 4px; }
+.fp-reset:hover { background: var(--bg); }
+
+.fp-result { font-size: 12px; color: var(--mid); text-align: center; padding: 6px 0; }
+.fp-result strong { font-size: 16px; font-weight: 700; color: var(--blue); }
+
+/* ── MAP ── */
+#map { flex: 1; }
+
+/* ── CARD STRIP ── */
+.card-strip {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--card-strip-h);
+  background: var(--white); border-top: 1px solid var(--line);
+  display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden;
+  gap: 0; padding: 10px 12px;
+  scroll-snap-type: x mandatory;
+  box-shadow: 0 -2px 8px rgba(0,0,0,.07);
+}
+.card-strip::-webkit-scrollbar { height: 4px; }
+.card-strip::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+
+.fac-card {
+  flex-shrink: 0; width: 240px; margin-right: 10px;
+  background: var(--white); border: 1.5px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; scroll-snap-align: start;
+  transition: border-color .15s, box-shadow .15s;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.fac-card:hover { border-color: var(--blue); box-shadow: 0 2px 10px rgba(40,116,194,.15); }
+.fac-card.active { border-color: var(--blue); background: #f0f6ff; box-shadow: 0 2px 12px rgba(40,116,194,.25); }
+.fc-name { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.3; }
+.fc-loc { font-size: 11px; color: var(--muted); }
+.fc-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.fc-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  font-weight: 600; white-space: nowrap;
+}
+.fc-desc { font-size: 11px; color: var(--mid); line-height: 1.4; margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-empty { display: flex; align-items: center; justify-content: center; width: 100%; font-size: 13px; color: var(--muted); }
+
+/* ── DETAIL POPUP ── */
+.detail-popup {
+  max-width: 320px; font-size: 13px; line-height: 1.5;
+}
+.dp-name { font-size: 15px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.dp-loc { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.dp-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.dp-feat { color: var(--mid); font-size: 12px; margin-bottom: 8px; }
+.dp-links { display: flex; flex-direction: column; gap: 4px; }
+.dp-links a { font-size: 11px; color: var(--blue); text-decoration: none; }
+.dp-links a:hover { text-decoration: underline; }
+
+/* ── LEGEND ── */
+.map-legend {
+  position: absolute; bottom: 12px; right: 12px; z-index: 1000;
+  background: rgba(255,255,255,.95); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,.1);
+}
+.legend-title { font-size: 10px; font-weight: 700; color: var(--muted); letter-spacing: .08em; margin-bottom: 6px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--mid); margin-bottom: 3px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="h-title">🏛 全国 庁舎系複合施設マップ</div>
+  <div class="h-badge" id="hBadge">現在 <strong id="totalCount">0</strong> 件収録（<strong id="prefCount">0</strong> 都道府県）</div>
+  <div class="h-right">
+    <button id="filterToggleBtn" onclick="toggleFilter()">☰ フィルター</button>
+  </div>
+</header>
+
+<div class="page-body">
+  <div class="filter-panel" id="filterPanel">
+    <div class="fp-section">
+      <div class="fp-label">キーワード検索</div>
+      <div class="fp-search">
+        <span class="si">🔍</span>
+        <input type="text" id="kwInput" placeholder="施設名・自治体・機能で検索" oninput="applyFilters()">
+      </div>
+    </div>
+    <div class="fp-section">
+      <div class="fp-label">都道府県</div>
+      <select class="fp-select" id="prefSelect" onchange="applyFilters()">
+        <option value="">すべての都道府県</option>
+      </select>
+    </div>
+    <div class="fp-section">
+      <div class="fp-label">主要機能で絞り込み（OR条件）</div>
+      <div class="fp-chips" id="funcChips"></div>
+    </div>
+    <button class="fp-reset" onclick="resetFilters()">✕ フィルターをリセット</button>
+    <div class="fp-result"><strong id="filterCount">0</strong> 件表示中</div>
+  </div>
+
+  <div id="map"></div>
+</div>
+
+<div class="card-strip" id="cardStrip"></div>
+
+<script>
+const CSV_FILE = '他自治体_庁舎複合施設.csv';
+
+// ── カテゴリ定義 ──
+const CATEGORIES = [
+  { key: '本庁舎',       label: '本庁舎',       color: '#1a3c6e', keywords: ['本庁舎'] },
+  { key: '支所・出張所', label: '支所・出張所', color: '#2874c2', keywords: ['支所', '出張所', 'まちづくりセンター', '市民センター'] },
+  { key: '図書館',       label: '図書館',       color: '#e07c24', keywords: ['図書館', '図書室'] },
+  { key: '保健・福祉',   label: '保健・福祉',   color: '#2e8b57', keywords: ['保健', '福祉', '社会福祉', 'あんしんすこやか'] },
+  { key: '子育て',       label: '子育て',       color: '#d44fa0', keywords: ['子育て', 'こども', 'こども園', '保育'] },
+  { key: '産業支援',     label: '産業支援',     color: '#1a9090', keywords: ['産業', '雇用', 'ハローワーク', '就労'] },
+  { key: '公民館',       label: '公民館',       color: '#8e5cca', keywords: ['公民館', 'コミュニティ'] },
+];
+
+function getCategory(funcStr) {
+  for (const cat of CATEGORIES) {
+    if (cat.keywords.some(k => funcStr.includes(k))) return cat;
+  }
+  return { key: 'その他', label: 'その他', color: '#888' };
+}
+
+function makeMarkerIcon(color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="36" viewBox="0 0 24 36">
+    <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 24 12 24s12-15 12-24C24 5.37 18.63 0 12 0z" fill="${color}" stroke="#fff" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="5" fill="#fff" fill-opacity=".9"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize: [24, 36],
+    iconAnchor: [12, 36],
+    popupAnchor: [0, -36],
+  });
+}
+
+function makeTagHtml(cat) {
+  return `<span class="fc-tag" style="background:${cat.color}22;color:${cat.color};border:1px solid ${cat.color}44">${cat.label}</span>`;
+}
+
+// ── 状態 ──
+let allRows = [];
+let filteredRows = [];
+let markers = {};
+let activeIdx = null;
+let markerCluster;
+
+const map = L.map('map', { zoomControl: true });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 18,
+}).addTo(map);
+map.setView([36.5, 138.0], 5);
+
+// ── CSV 読み込み ──
+fetch(CSV_FILE)
+  .then(r => r.text())
+  .then(text => {
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+    allRows = parsed.data.filter(r => r['緯度'] && r['経度']);
+    initUI();
+    applyFilters();
+  })
+  .catch(err => {
+    document.getElementById('cardStrip').innerHTML = `<div class="card-empty">⚠ CSVファイルの読み込みに失敗しました。ローカルサーバー経由でアクセスしてください。</div>`;
+    console.error(err);
+  });
+
+function initUI() {
+  // 都道府県プルダウン
+  const prefs = [...new Set(allRows.map(r => r['都道府県']))].sort();
+  const sel = document.getElementById('prefSelect');
+  prefs.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = p;
+    sel.appendChild(opt);
+  });
+
+  // 機能チップ
+  const chips = document.getElementById('funcChips');
+  CATEGORIES.forEach(cat => {
+    const div = document.createElement('div');
+    div.className = 'fp-chip';
+    div.dataset.key = cat.key;
+    div.innerHTML = `<span class="dot" style="background:${cat.color}"></span>${cat.label}`;
+    div.onclick = () => { div.classList.toggle('active'); applyFilters(); };
+    chips.appendChild(div);
+  });
+
+  // バッジ
+  const prefs2 = new Set(allRows.map(r => r['都道府県']));
+  document.getElementById('totalCount').textContent = allRows.length;
+  document.getElementById('prefCount').textContent = prefs2.size;
+}
+
+function getActiveCategories() {
+  return [...document.querySelectorAll('.fp-chip.active')].map(el => el.dataset.key);
+}
+
+function applyFilters() {
+  const kw = document.getElementById('kwInput').value.trim().toLowerCase();
+  const pref = document.getElementById('prefSelect').value;
+  const activeCats = getActiveCategories();
+
+  filteredRows = allRows.filter(row => {
+    const funcStr = (row['主要機能'] || '');
+    if (pref && row['都道府県'] !== pref) return false;
+    if (activeCats.length > 0) {
+      const matched = CATEGORIES.filter(c => activeCats.includes(c.key))
+        .some(c => c.keywords.some(k => funcStr.includes(k)));
+      if (!matched) return false;
+    }
+    if (kw) {
+      const search = [row['施設名'], row['自治体'], row['都道府県'], funcStr, row['特徴']].join(' ').toLowerCase();
+      if (!search.includes(kw)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('filterCount').textContent = filteredRows.length;
+  renderMarkers();
+  renderCards();
+}
+
+function renderMarkers() {
+  if (markerCluster) map.removeLayer(markerCluster);
+  markers = {};
+  markerCluster = L.markerClusterGroup({ maxClusterRadius: 50, showCoverageOnHover: false });
+
+  filteredRows.forEach((row, idx) => {
+    const lat = parseFloat(row['緯度']);
+    const lng = parseFloat(row['経度']);
+    if (isNaN(lat) || isNaN(lng)) return;
+
+    const cat = getCategory(row['主要機能'] || '');
+    const marker = L.marker([lat, lng], { icon: makeMarkerIcon(cat.color) });
+
+    const funcs = (row['主要機能'] || '').split(',').map(s => s.trim()).filter(Boolean);
+    const tagsHtml = funcs.slice(0, 3).map(f => {
+      const c = getCategory(f);
+      return `<span class="fc-tag" style="background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">${f.length > 12 ? f.slice(0, 12) + '…' : f}</span>`;
+    }).join('');
+
+    const popup = L.popup({ maxWidth: 320 }).setContent(`
+      <div class="detail-popup">
+        <div class="dp-name">${row['施設名']}</div>
+        <div class="dp-loc">📍 ${row['自治体']}（${row['都道府県']}）</div>
+        <div class="dp-tags">${tagsHtml}</div>
+        <div class="dp-feat">${row['特徴'] || ''}</div>
+        <div class="dp-links">
+          ${row['公式ページURL'] ? `<a href="${row['公式ページURL']}" target="_blank">🔗 公式ページ</a>` : ''}
+          ${row['出典URL'] ? `<a href="${row['出典URL']}" target="_blank">📄 出典</a>` : ''}
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px">追加日: ${row['追加日'] || ''}</div>
+      </div>
+    `);
+
+    marker.bindPopup(popup);
+    marker.on('click', () => activateCard(idx));
+    markers[idx] = marker;
+    markerCluster.addLayer(marker);
+  });
+
+  map.addLayer(markerCluster);
+  addLegend();
+}
+
+function renderCards() {
+  const strip = document.getElementById('cardStrip');
+  strip.innerHTML = '';
+  if (filteredRows.length === 0) {
+    strip.innerHTML = '<div class="card-empty">🔍 該当する施設がありません</div>';
+    return;
+  }
+  filteredRows.forEach((row, idx) => {
+    const cat = getCategory(row['主要機能'] || '');
+    const funcs = (row['主要機能'] || '').split(',').map(s => s.trim()).filter(Boolean);
+    const tagsHtml = funcs.slice(0, 3).map(f => {
+      const c = getCategory(f);
+      return `<span class="fc-tag" style="background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">${f.length > 10 ? f.slice(0, 10) + '…' : f}</span>`;
+    }).join('');
+
+    const card = document.createElement('div');
+    card.className = 'fac-card';
+    card.id = `card-${idx}`;
+    card.innerHTML = `
+      <div class="fc-name">${row['施設名']}</div>
+      <div class="fc-loc">${row['自治体']}（${row['都道府県']}）</div>
+      <div class="fc-tags">${tagsHtml}</div>
+      <div class="fc-desc">${row['特徴'] || ''}</div>
+    `;
+    card.onclick = () => activateMarker(idx);
+    strip.appendChild(card);
+  });
+}
+
+function activateCard(idx) {
+  activeIdx = idx;
+  document.querySelectorAll('.fac-card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById(`card-${idx}`);
+  if (card) { card.classList.add('active'); card.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' }); }
+}
+
+function activateMarker(idx) {
+  activeIdx = idx;
+  document.querySelectorAll('.fac-card').forEach(c => c.classList.remove('active'));
+  const card = document.getElementById(`card-${idx}`);
+  if (card) card.classList.add('active');
+
+  const marker = markers[idx];
+  if (!marker) return;
+  const row = filteredRows[idx];
+  const lat = parseFloat(row['緯度']);
+  const lng = parseFloat(row['経度']);
+  map.flyTo([lat, lng], 14, { duration: 0.8 });
+  setTimeout(() => marker.openPopup(), 900);
+}
+
+let legendAdded = false;
+function addLegend() {
+  if (legendAdded) return;
+  legendAdded = true;
+  const legend = L.control({ position: 'bottomright' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div', 'map-legend');
+    div.innerHTML = `<div class="legend-title">主要機能</div>` +
+      CATEGORIES.map(c => `<div class="legend-item"><span class="legend-dot" style="background:${c.color}"></span>${c.label}</div>`).join('');
+    return div;
+  };
+  legend.addTo(map);
+}
+
+function toggleFilter() {
+  document.getElementById('filterPanel').classList.toggle('collapsed');
+  setTimeout(() => map.invalidateSize(), 300);
+}
+
+function resetFilters() {
+  document.getElementById('kwInput').value = '';
+  document.getElementById('prefSelect').value = '';
+  document.querySelectorAll('.fp-chip.active').forEach(c => c.classList.remove('active'));
+  applyFilters();
+}
+</script>
+</body>
+</html>
